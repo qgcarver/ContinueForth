@@ -1,6 +1,6 @@
 #!/bin/sh
 
-if [ -f "contiunueforth.S" ]; then
+if [ -f "continueforth.S" ]; then
     nasm -f elf64 continueforth.S -o cf.o
     ld -shared cf.o -o libcf.so
 else
