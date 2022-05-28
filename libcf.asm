@@ -1,38 +1,6 @@
-;    The ContinueForth reference bootstrapping evaluator for AMD64 processors
-;    Copyright (C) 2022  Quentin Glenn Carver
-;
-;    This program is free software: you can redistribute it and/or modify
-;    it under the terms of the GNU General Public License as published by
-;    the Free Software Foundation, either version 3 of the License, or
-;    (at your option) any later version.
-;
-;    This program is distributed in the hope that it will be useful,
-;    but WITHOUT ANY WARRANTY; without even the implied warranty of
-;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-;    GNU General Public License for more details.
-;
-;    You should have received a copy of the GNU General Public License
-;    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 default rel
 bits 64
 
-%define PAGESIZE 0x1000 ; 4096
-%macro mmap 2
-%define PROT_READ_and_WRITE 0x3
-%define MAP_PRIVATE_and_ANONYMOUS 0x22
-	mov rax, 9		; mmap
-	mov rdi, 0		; address
-	mov rsi, %2		; length
-	mov rdx, PROT_READ_and_WRITE
-	mov r10, MAP_PRIVATE_and_ANONYMOUS
-	mov r8, -1		; no file
-	mov r9, 0 		; no offset
-	syscall			; rax has mem
-	mov %1, rax
-%undef PROT_READ_and_WRITE
-%undef MAP_PRIVATE_and_ANONYMOUS
-%endmacro 
 
 %macro copy 3
 ; rcx = size , rsi = srcptr , rdi = destptr
@@ -75,6 +43,7 @@ bits 64
 
 %define hasharr r15
 %define framearray r14
+; it's worth noting that r13 has addressing limitations, making index the best fit.
 %define frameindex r13 ; we might also just call this frameoff and ignore scaling
 %define dwframeindex r13d ; we might also just call this frameoff and ignore scaling
 
@@ -92,49 +61,6 @@ bits 64
 	qtag %2, %3
 	allocframe
 %endmacro
-
-section .bss
-initialstack: resq 1
-section .text
-	global _start
-	global pop
-	global dup
-_start:
-	mov rdi, 137
-	pushcont leavewithvalue
-	mmap hasharr, PAGESIZE*16
-	mmap framearray, PAGESIZE*16
-	mmap rbp, PAGESIZE*16
-
-	pushcont add
-	mov r10, 0xc000000000000007
-	push r10
-	mov r10, 0xc000000000000005
-	push r10
-
-	allocframe
-	pushquot dup, r10, rbx
-	pushquot swap, rsi, rdi
-	allocframe
-	
-	pushcont pop
-	pushcont pop
-	pushcont cat
-	pushcont app
-	pushcont quote
-	pushcont pop
-	pushcont quote
-	push r10
-	push r10
-	push rsi
-	push r10
-	
-	jmp decode
-leavewithvalue:
-	mov rdi, [rbp]
-	mov rax, 231
-	syscall
-
 
 %macro seqhash 2
 	mov rcx, %2
@@ -171,6 +97,65 @@ leavewithvalue:
 	shr rdx, 32
 	; rbx has index or rdx has frame index
 %endmacro
+
+section .text
+	global init
+	global load
+	; we can't quote numbers atm
+init:	push framearray
+	push frameindex
+	mov framearray, rdi
+	mov frameindex, 0
+	allocframe
+	pushquot dup, rdx, rcx
+	pushquot swap, rdx, rcx
+	pushquot pop, rdx, rcx
+	pushquot quote, rdx, rcx
+	pushquot cat, rdx, rcx
+	pushquot app, rdx, rcx
+	pushquot add, rdx, rcx
+	allocframe
+	mov rax, frameindex
+	pop frameindex
+	pop framearray
+	ret
+
+load:	push rbx
+	push framearray
+	push frameindex
+	push hasharr
+	push r12
+	push rbp
+	mov framearray, [rdx]
+	mov frameindex, [rdx+8]
+	mov hasharr, [rdx+16]
+	mov rbp, [rdx+24]
+	push rdx
+	pushcont .end
+	cmp rsi, 0
+	jz .end
+	lea rsi, [rsi*8]
+	sub rsp, rsi
+	add rsi, rdi
+	mov r10, rsp
+.loop:	mov rax, [rdi]
+	mov [r10], rax
+	add rdi, 8
+	add r10, 8
+	cmp rsi, rdi
+	jne .loop
+	jmp decode
+.end:	mov rax, rbp
+	pop rdx
+	mov [rdx+8], frameindex
+	pop rbp
+	pop r12
+	pop hasharr
+	pop frameindex
+	pop framearray
+	pop rbx
+	ret
+
 
 add:	mov rax, [rbp]
 	prepnum rax
